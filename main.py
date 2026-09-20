@@ -61,11 +61,13 @@ async def start_bot():
     commands = [
         BotCommand(command="start", description="Botni qayta ishga tushirish 🔄"),
         BotCommand(command="addvoice", description="Yangi ovoz taklif qilish 🎙"),
+        BotCommand(command="effects", description="Ovoz effektlari menyusi 🎨"),
         BotCommand(command="top", description="Eng ko'p jo'natilgan ovozlar 🔥"),
         BotCommand(command="help", description="Qo'llanma va yordam 📖"),
         BotCommand(command="admin", description="Admin paneli 🛠"),
         BotCommand(command="setup_threads", description="Guruhda mavzular ochish 🧵")
     ]
+
     try:
         await bot.set_my_commands(commands)
     except Exception as e:

@@ -19,21 +19,31 @@ def get_admin_menu_kb(is_super: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_audio_convert_kb(is_adm: bool = False) -> InlineKeyboardMarkup:
-    """MP3 yuborilganda effektlar va konvertatsiya tugmalari."""
+    """Audio/Voice yuborilganda effektlar va konvertatsiya tugmalari menyusi."""
     keyboard = [
         [
-            InlineKeyboardButton(text="🎙 Oddiy Voice", callback_data="fx:normal"),
+            InlineKeyboardButton(text="🎙 Oddiy", callback_data="fx:normal"),
             InlineKeyboardButton(text="🤖 Robot", callback_data="fx:robot")
         ],
         [
-            InlineKeyboardButton(text="🐿 Chipmunk (Tez)", callback_data="fx:chipmunk"),
-            InlineKeyboardButton(text="🔈 Basoviy (Chuqur)", callback_data="fx:deep")
+            InlineKeyboardButton(text="🐿 Chipmunk", callback_data="fx:chipmunk"),
+            InlineKeyboardButton(text="🔈 Bas / Chuqur", callback_data="fx:deep")
+        ],
+        [
+            InlineKeyboardButton(text="🎈 Geliy (Ingichka)", callback_data="fx:helium"),
+            InlineKeyboardButton(text="📻 Radio / Ratsiya", callback_data="fx:radio")
+        ],
+        [
+            InlineKeyboardButton(text="🌌 Aks-sado", callback_data="fx:echo"),
+            InlineKeyboardButton(text="⚡️ 1.4x Tez", callback_data="fx:fast"),
+            InlineKeyboardButton(text="🐢 0.75x Sekin", callback_data="fx:slow")
         ],
         [
             InlineKeyboardButton(text="💡 Bazaga ovoz taklif qilish", callback_data="suggest_voice")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 def get_moderation_kb(sub_id: str) -> InlineKeyboardMarkup:
     """Adminlar uchun ovozni tasdiqlash yoki rad etish tugmalari."""

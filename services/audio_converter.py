@@ -18,9 +18,20 @@ async def convert_audio_to_voice(input_path: str, effect: str = "normal") -> str
     if effect == "chipmunk":
         af_filters.append("asetrate=48000*1.35,aresample=48000,atempo=1.05")
     elif effect == "deep":
-        af_filters.append("asetrate=48000*0.8,aresample=48000,bass=g=8")
+        af_filters.append("asetrate=48000*0.75,aresample=48000,bass=g=10")
     elif effect == "robot":
         af_filters.append("flanger=delay=10:depth=5:regen=70:width=71:speed=0.5")
+    elif effect == "helium":
+        af_filters.append("asetrate=48000*1.6,aresample=48000,atempo=0.8")
+    elif effect == "radio":
+        af_filters.append("highpass=f=400,lowpass=f=2800,volume=1.8")
+    elif effect == "echo":
+        af_filters.append("aecho=0.8:0.88:400:0.4")
+    elif effect == "fast":
+        af_filters.append("atempo=1.4")
+    elif effect == "slow":
+        af_filters.append("atempo=0.75")
+
 
     cmd = [
         "ffmpeg", "-y",

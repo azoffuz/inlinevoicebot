@@ -64,10 +64,31 @@ async def cmd_help(message: Message):
         f"1. Istalgan chatda `@{bot_user.username}` deb yozing.\n"
         "2. Ro'yxatdan eng mashhur ovozlardan birini tanlang va do'stlaringizga yuboring.\n"
         "3. `/top` — Eng ko'p eshitilgan trend ovozlar.\n"
-        "4. `/addvoice` — O'zingiz ham yangi ovoz taklif qilishingiz mumkin (moderatsiyadan so'ng bazaga qo'shiladi!).\n"
-        "5. Botga istalgan MP3 musiqa yoki audio yuborsangiz, uni Telegram ovozli xabariga aylantirib beradi."
+        "4. `/effects` — Ovoz effektlari laboratoriyasi menyusi.\n"
+        "5. `/addvoice` — O'zingiz ham yangi ovoz taklif qilishingiz mumkin (moderatsiyadan so'ng bazaga qo'shiladi!).\n"
+        "6. Botga istalgan Voice (ovozli xabar) yoki MP3 musiqa yuboring, uni har xil effektlarda eshitib ko'rishingiz mumkin!"
     )
     await message.answer(text, parse_mode="Markdown")
+
+@router.message(Command("effects"))
+async def cmd_effects(message: Message):
+    """Ovoz effektlari menyusi va tushuntirish."""
+    text = (
+        "🎨 **Ovoz Effektlari Laboratoriyasi!**\n\n"
+        "Menga shaxsiy chatda istalgan **Voice (ovozli xabar)** yoki **MP3 musiqa** yuboring, men uni quyidagi effektlarga aylantirib beraman:\n\n"
+        "• 🎙 **Standart** — Toza ovozli xabar (.ogg Opus)\n"
+        "• 🤖 **Robot** — Metallik robot ovozi\n"
+        "• 🐿 **Chipmunk** — Kulgili multfilm qahramoni ovozi\n"
+        "• 🔈 **Bas / Chuqur** — Maxluq / Yo'g'on ovoz\n"
+        "• 🎈 **Geliy** — Geliy gazi yutgandek o'ta ingichka ovoz\n"
+        "• 📻 **Ratsiya / Radio** — Harbiy ratsiya yoki eski radio effekti\n"
+        "• 🌌 **Aks-sado** — Katta saroy yoki g'or aks-sadosi\n"
+        "• ⚡️ **1.4x Tezlik** — Tezlashtirilgan ijro\n"
+        "• 🐢 **0.75x Sekinlik** — Sekinlashtirilgan ijro\n\n"
+        "🎙 *Hozirroq mikrofoni bosib biror narsa gapiring yoki musiqa tashlang!*"
+    )
+    await message.answer(text, parse_mode="Markdown")
+
 
 @router.message(Command("top"))
 async def cmd_top(message: Message):
@@ -312,14 +333,22 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
         voice_file = FSInputFile(output_voice)
         effect_names = {
             "normal": "🎙 Standart",
-            "robot": "🤖 Robot",
-            "chipmunk": "🐿 Chipmunk (Tez)",
-            "deep": "🔈 Chuqur / Bas"
+            "robot": "🤖 Robot ovoz",
+            "chipmunk": "🐿 Chipmunk (Multfilm)",
+            "deep": "🔈 Chuqur / Bas",
+            "helium": "🎈 Geliy (Ingichka)",
+            "radio": "📻 Ratsiya / Radio",
+            "echo": "🌌 Aks-sado (Katta zal)",
+            "fast": "⚡️ 1.4x Tezlik",
+            "slow": "🐢 0.75x Sekinlik"
         }
         await callback.message.reply_voice(
             voice=voice_file,
-            caption=f"Ovoz effekti: {effect_names.get(effect, effect)}"
+            caption=f"✨ **Ovoz effekti:** {effect_names.get(effect, effect)}\nBoshqa effektlarni ham sinab ko'rishingiz mumkin:",
+            reply_markup=get_audio_convert_kb(),
+            parse_mode="Markdown"
         )
+
     except Exception as e:
         logger.error(f"Effekt konvertatsiya xatosi: {e}")
         await callback.message.reply(f"❌ Xatolik: {e}")
