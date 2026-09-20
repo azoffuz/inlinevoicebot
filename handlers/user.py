@@ -111,7 +111,7 @@ async def handle_audio_message(message: Message, bot: Bot):
         await message.reply_voice(
             voice=voice_file,
             caption=caption,
-            reply_markup=get_audio_convert_kb(file_id, is_adm=is_adm)
+            reply_markup=get_audio_convert_kb(is_adm=is_adm)
         )
         await msg.delete()
 
@@ -134,16 +134,23 @@ async def handle_audio_message(message: Message, bot: Bot):
                 pass
 
 
-@router.callback_query(F.data.startswith("conv:"))
+@router.callback_query(F.data.startswith("fx:"))
 async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
     """Tugma bosilganda effektlar bilan qayta konvertatsiya qilish."""
-    parts = callback.data.split(":")
-    if len(parts) < 3:
-        return
+    effect = callback.data.split(":")[1]
     
-    effect = parts[1]
-    file_id = parts[2]
-    
+    # Asl audio faylni topish
+    media = None
+    if callback.message.reply_to_message:
+        orig = callback.message.reply_to_message
+        media = orig.audio or orig.voice or orig.document
+    if not media:
+        media = callback.message.voice or callback.message.audio
+
+    if not media:
+        return await callback.answer("Audio fayl topilmadi.", show_alert=True)
+
+    file_id = media.file_id
     await callback.answer(f"Effekt qo'llanmoqda: {effect}...")
     
     temp_dir = tempfile.gettempdir()
@@ -157,8 +164,7 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
             return
 
         ext = os.path.splitext(file_info.file_path)[1] or ".ogg"
-        input_path = os.path.join(temp_dir, f"fx_in_{file_id[-10:]}{ext}")
-
+        input_path = os.path.join(temp_dir, f"fx_in_{media.file_unique_id}{ext}")
 
         await bot.download_file(file_info.file_path, destination=input_path)
         output_voice = await convert_audio_to_voice(input_path, effect=effect)
@@ -176,9 +182,9 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
         )
     except Exception as e:
         logger.error(f"Effekt konvertatsiya xatosi: {e}")
-        await callback.message.reply("❌ Ovoz effektini qo'llashda xatolik yuz berdi.")
+        await callback.message.reply(f"❌ Xatolik: {e}")
     finally:
-        if os.path.exists(input_path):
+        if input_path and os.path.exists(input_path):
             try:
                 os.remove(input_path)
             except Exception:
@@ -188,3 +194,4 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
                 os.remove(output_voice)
             except Exception:
                 pass
+

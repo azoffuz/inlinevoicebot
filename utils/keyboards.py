@@ -18,19 +18,20 @@ def get_admin_menu_kb(is_super: bool = False) -> InlineKeyboardMarkup:
         ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_audio_convert_kb(audio_file_id: str, is_adm: bool = False) -> InlineKeyboardMarkup:
+def get_audio_convert_kb(is_adm: bool = False) -> InlineKeyboardMarkup:
     """MP3 yuborilganda effektlar va konvertatsiya tugmalari."""
     keyboard = [
         [
-            InlineKeyboardButton(text="🎙 Oddiy Voice", callback_data=f"conv:normal:{audio_file_id}"),
-            InlineKeyboardButton(text="🤖 Robot", callback_data=f"conv:robot:{audio_file_id}")
+            InlineKeyboardButton(text="🎙 Oddiy Voice", callback_data="fx:normal"),
+            InlineKeyboardButton(text="🤖 Robot", callback_data="fx:robot")
         ],
         [
-            InlineKeyboardButton(text="🐿 Chipmunk (Tez)", callback_data=f"conv:chipmunk:{audio_file_id}"),
-            InlineKeyboardButton(text="🔈 Basoviy (Chuqur)", callback_data=f"conv:deep:{audio_file_id}")
+            InlineKeyboardButton(text="🐿 Chipmunk (Tez)", callback_data="fx:chipmunk"),
+            InlineKeyboardButton(text="🔈 Basoviy (Chuqur)", callback_data="fx:deep")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 def get_voice_action_kb(voice_id: str) -> InlineKeyboardMarkup:
     """Admin uchun bitta ovozni boshqarish (o'chirish) tugmasi."""
