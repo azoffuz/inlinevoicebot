@@ -46,35 +46,72 @@ async def notify_error_log(bot: Bot, error_text: str) -> None:
         except Exception as e:
             logger.error(f"Logs threadga yuborishda xatolik: {e}")
 
+from html import escape
+
 async def forward_submission_for_review(
     bot: Bot,
     voice_file_id: str,
     caption: str,
     reply_markup: InlineKeyboardMarkup
-) -> None:
+) -> bool:
     """
     Yangi ovoz taklifini moderatsiya uchun yuborish:
-    Agar guruhdagi 'requests' thread sozlangan bo'lsa, o'sha yerga tushadi.
-    Aks holda shaxsiy adminlarga boradi.
+    1. Agar guruhdagi 'requests' thread bo'lsa, o'sha yerga tushadi.
+    2. Agar guruh bo'lmasa, shaxsiy adminlarga boradi.
+    3. Agar send_voice xato bersa (masalan MP3 bo'lsa), send_audio yoki send_message ga o'tadi.
     """
     group_id, threads = await get_target_group_and_threads()
     req_thread = threads.get("requests")
 
-    if group_id and req_thread:
-        try:
-            await bot.send_voice(
-                chat_id=group_id,
-                message_thread_id=req_thread,
-                voice=voice_file_id,
-                caption=caption,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-            return
-        except Exception as e:
-            logger.error(f"Guruh requests threadiga yuborishda xatolik: {e}")
+    async def send_to_chat(chat_id: int, thread_id: Optional[int] = None) -> bool:
+        kwargs = {
+            "chat_id": chat_id,
+            "caption": caption,
+            "reply_markup": reply_markup,
+            "parse_mode": "HTML"
+        }
+        if thread_id:
+            kwargs["message_thread_id"] = thread_id
 
-    # Guruh sozlanmagan bo'lsa shaxsiy adminlarga
+        # 1-urinish: send_voice
+        try:
+            await bot.send_voice(voice=voice_file_id, **kwargs)
+            return True
+        except Exception as e1:
+            logger.warning(f"send_voice xatosi ({chat_id}): {e1}")
+
+        # 2-urinish: send_audio
+        try:
+            await bot.send_audio(audio=voice_file_id, **kwargs)
+            return True
+        except Exception as e2:
+            logger.warning(f"send_audio xatosi ({chat_id}): {e2}")
+
+        # 3-urinish: send_message
+        try:
+            text_kwargs = {
+                "chat_id": chat_id,
+                "text": caption,
+                "reply_markup": reply_markup,
+                "parse_mode": "HTML"
+            }
+            if thread_id:
+                text_kwargs["message_thread_id"] = thread_id
+            await bot.send_message(**text_kwargs)
+            return True
+        except Exception as e3:
+            logger.error(f"send_message ham xato berdi ({chat_id}): {e3}")
+            return False
+
+    delivered = False
+
+    # 1. Guruhdagi requests threadiga yuborish
+    if group_id and req_thread:
+        ok = await send_to_chat(group_id, req_thread)
+        if ok:
+            return True
+
+    # 2. Agar guruh bo'lmasa yoki yuborilmagan bo'lsa, shaxsiy adminlarga
     admin_ids = set()
     if config.SUPERADMIN_ID:
         admin_ids.add(config.SUPERADMIN_ID)
@@ -83,20 +120,19 @@ async def forward_submission_for_review(
         for adm in db_admins:
             if adm.get("user_id"):
                 admin_ids.add(adm["user_id"])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"db_admins olishda xatolik: {e}")
 
     for aid in admin_ids:
-        try:
-            await bot.send_voice(
-                chat_id=aid,
-                voice=voice_file_id,
-                caption=caption,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logger.error(f"Adminga taklif yuborish xatosi (ID: {aid}): {e}")
+        ok = await send_to_chat(aid)
+        if ok:
+            delivered = True
+
+    if not delivered:
+        logger.error(f"Taklif hech qayerga yetkazilmadi! Guruh: {group_id}, Adminlar: {admin_ids}")
+
+    return delivered
+
 
 async def upload_voice_to_storage(
     bot: Bot,

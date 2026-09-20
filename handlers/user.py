@@ -200,20 +200,27 @@ async def process_user_voice_title(message: Message, state: FSMContext, bot: Bot
     )
 
     # 2. Moderatsiyaga yuborish (Guruhdagi 'Ovoz Takliflari' threadiga yoki adminlarga)
+    from html import escape
+    safe_name = escape(user_name)
+    safe_title = escape(title)
     admin_caption = (
-        f"📥 **Yangi ovoz taklifi!**\n\n"
-        f"👤 Yuboruvchi: {user_name} [ID: `{user.id}`]\n"
-        f"🎙 Sarlavha: **{title}**\n"
+        f"📥 <b>Yangi ovoz taklifi!</b>\n\n"
+        f"👤 Yuboruvchi: {safe_name} [ID: <code>{user.id}</code>]\n"
+        f"🎙 Sarlavha: <b>{safe_title}</b>\n"
         f"🕒 Davomiyligi: {duration} sek"
     )
 
     from services.notifier import forward_submission_for_review
-    await forward_submission_for_review(
+    delivered = await forward_submission_for_review(
         bot=bot,
         voice_file_id=file_id,
         caption=admin_caption,
         reply_markup=get_moderation_kb(sub_id)
     )
+
+    if not delivered:
+        logger.warning(f"Ovoz taklifi hech qaysi adminga yoki guruhga yetib bormadi! SUPERADMIN_ID: {config.SUPERADMIN_ID}, ADMIN_GROUP_ID: {config.ADMIN_GROUP_ID}")
+
 
 
 
