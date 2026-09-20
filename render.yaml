@@ -13,7 +13,10 @@ services:
         sync: false
       - key: STORAGE_CHANNEL_ID
         sync: false
+      - key: ADMIN_GROUP_ID
+        sync: false
       - key: SUPERADMIN_ID
         sync: false
       - key: PORT
+
         value: 8080

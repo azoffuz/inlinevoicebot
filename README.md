@@ -64,8 +64,10 @@ Telegramda inline rejimda tayyor ovozli xabarlarni (`@bot` orqali) lahzada chiqa
    - `SUPABASE_URL` = Supabase URL
    - `SUPABASE_KEY` = Supabase API kaliti
    - `STORAGE_CHANNEL_ID` = Telegram kanal ID si (masalan: `-1001234567890`)
+   - `ADMIN_GROUP_ID` = Telegram Admin Guruh ID si (Topics ochiladigan guruh, masalan: `-1009876543210`)
    - `SUPERADMIN_ID` = Sizning Telegram raqamli ID ingiz (masalan: `123456789`)
    - `PORT` = `8080`
+
 6. **Create Web Service** tugmasini bosing. Bot bir necha daqiqada ishga tushadi!
 
 > [!TIP]
