@@ -2,6 +2,7 @@ import logging
 from aiogram import Router
 from aiogram.types import InlineQuery, ChosenInlineResult, InlineQueryResultCachedVoice
 from database.voices import get_top_voices, search_voices, increment_voice_usage
+from database.users import upsert_user
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,15 @@ async def inline_voices_handler(inline_query: InlineQuery):
     - Hech narsa yozilmasa: Eng ko'p jo'natilgan ovozlar ketma-ket chiqadi.
     - Biror so'z yozilsa: Nom yoki teglar bo'yicha mos ovozlar chiqadi.
     """
+    u = inline_query.from_user
+    if u:
+        try:
+            await upsert_user(u.id, u.first_name or "", u.username or "")
+        except Exception:
+            pass
+
     query = inline_query.query.strip()
+
     
     try:
         if not query:

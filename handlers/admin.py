@@ -438,14 +438,16 @@ async def cb_broadcast_execute(callback: CallbackQuery, state: FSMContext, bot: 
 
     for idx, uid in enumerate(user_ids, start=1):
         try:
-            await bot.copy_to(
+            await bot.copy_message(
                 chat_id=uid,
                 from_chat_id=from_chat_id,
                 message_id=broadcast_msg_id
             )
             sent += 1
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Broadcast xatosi (user_id: {uid}): {e}")
             failed += 1
+
 
         # Har 25 ta xabarda progressni yangilash
         if idx % 25 == 0 or idx == total:

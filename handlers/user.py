@@ -242,9 +242,16 @@ async def handle_audio_message(message: Message, bot: Bot):
 
     file_id = media.file_id
     user = message.from_user
+    if user:
+        try:
+            await upsert_user(user.id, user.first_name or "", user.username or "")
+        except Exception:
+            pass
+
     is_adm = await is_admin(user.id) if user else False
     
     msg = await message.reply("⏳ Audio qayta ishlanmoqda...")
+
     
     temp_dir = tempfile.gettempdir()
     input_file_path = None
