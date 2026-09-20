@@ -1,4 +1,5 @@
 import os
+import asyncio
 import tempfile
 import logging
 from aiogram import Router, F, Bot
@@ -28,6 +29,8 @@ class AddAdminState(StatesGroup):
 
 class BroadcastState(StatesGroup):
     waiting_for_message = State()
+    waiting_for_confirm = State()
+
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, state: FSMContext):
@@ -350,47 +353,138 @@ async def cb_del_admin(callback: CallbackQuery):
     else:
         await callback.answer("❌ O'chirishda xatolik yuz berdi.", show_alert=True)
 
-# --- BROADCAST (XABAR TARQATISH) ---
+# --- BROADCAST (REKLAMA VA XABAR TARQATISH) ---
 @router.callback_query(F.data == "admin_broadcast")
 async def cb_admin_broadcast(callback: CallbackQuery, state: FSMContext):
     """Broadcast boshlash."""
     if not await is_admin(callback.from_user.id):
         return await callback.answer("Ruxsat yo'q!", show_alert=True)
 
+    total_users = await get_total_users_count()
     await state.set_state(BroadcastState.waiting_for_message)
     await callback.message.edit_text(
-        "📢 Barcha foydalanuvchilarga yuboriladigan xabarni kiriting:\n\n(Bekor qilish uchun /cancel)",
-        reply_markup=get_back_to_admin_kb()
+        f"📢 **Reklama va Xabar Tarqatish Bo'limi**\n\n"
+        f"👥 Hozirda botda: **{total_users}** ta foydalanuvchi mavjud.\n\n"
+        "Tarqatmoqchi bo'lgan xabaringizni menga yuboring:\n"
+        "*(Matn, Rasm, Video, Audio, Havolali post yoki Forward qilingan xabar bo'lishi mumkin)*\n\n"
+        "Bekor qilish uchun: /cancel",
+        reply_markup=get_back_to_admin_kb(),
+        parse_mode="Markdown"
     )
     await callback.answer()
 
 @router.message(BroadcastState.waiting_for_message)
-async def process_broadcast_message(message: Message, state: FSMContext, bot: Bot):
-    """Xabarni barcha foydalanuvchilarga yuborish."""
-    await state.clear()
+async def process_broadcast_preview(message: Message, state: FSMContext, bot: Bot):
+    """Admin yuborgan xabarni qabul qilish va oldindan ko'rsatish (Preview)."""
     user_ids = await get_all_user_ids()
+    total_count = len(user_ids)
 
-    if not user_ids:
+    if total_count == 0:
+        await state.clear()
         return await message.reply("Foydalanuvchilar bazada mavjud emas.")
 
-    msg = await message.reply(f"⏳ {len(user_ids)} ta foydalanuvchiga xabar yuborilmoqda...")
+    # Xabar parametrlarini state ga saqlaymiz
+    await state.update_data(
+        from_chat_id=message.chat.id,
+        broadcast_msg_id=message.message_id
+    )
+    await state.set_state(BroadcastState.waiting_for_confirm)
+
+    # 1. Reklama xabarining o'zini adminga ko'rsatamiz (Preview)
+    await message.reply("👁 **Reklama xabaringiz foydalanuvchilarga shunday ko'rinadi:**")
+    await message.copy_to(chat_id=message.chat.id)
+
+    # 2. Tasdiqlash tugmalari
+    confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"🚀 Yuborishni boshlash ({total_count} ta)", callback_data="bcast_confirm")
+        ],
+        [
+            InlineKeyboardButton(text="❌ Bekor qilish", callback_data="bcast_cancel")
+        ]
+    ])
+
+    await message.answer(
+        f"❓ **Xabarni barcha {total_count} ta foydalanuvchiga yuborishni tasdiqlaysizmi?**",
+        reply_markup=confirm_kb,
+        parse_mode="Markdown"
+    )
+
+@router.callback_query(BroadcastState.waiting_for_confirm, F.data == "bcast_confirm")
+async def cb_broadcast_execute(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    """Admin tasdiqlagach, barcha foydalanuvchilarga xabarni tarqatish."""
+    data = await state.get_data()
+    await state.clear()
+
+    from_chat_id = data.get("from_chat_id")
+    broadcast_msg_id = data.get("broadcast_msg_id")
+
+    if not from_chat_id or not broadcast_msg_id:
+        return await callback.message.edit_text("❌ Xatolik: Xabar topilmadi.", reply_markup=get_back_to_admin_kb())
+
+    user_ids = await get_all_user_ids()
+    total = len(user_ids)
+
+    progress_msg = await callback.message.edit_text(
+        f"⏳ **Reklama tarqatish boshlandi...**\n\n"
+        f"📊 Holat: 0 / {total} (0%)\n"
+        f"✅ Yetkazildi: 0\n"
+        f"❌ Xatolik / Blok: 0",
+        parse_mode="Markdown"
+    )
+
     sent = 0
     failed = 0
 
-    for uid in user_ids:
+    for idx, uid in enumerate(user_ids, start=1):
         try:
-            await message.copy_to(chat_id=uid)
+            await bot.copy_to(
+                chat_id=uid,
+                from_chat_id=from_chat_id,
+                message_id=broadcast_msg_id
+            )
             sent += 1
         except Exception:
             failed += 1
 
-    await msg.edit_text(
-        f"📢 **Xabar tarqatish yakunlandi!**\n\n"
-        f"✅ Yuborildi: {sent}\n"
-        f"❌ Xatolik: {failed}",
+        # Har 25 ta xabarda progressni yangilash
+        if idx % 25 == 0 or idx == total:
+            percent = int((idx / total) * 100)
+            try:
+                await progress_msg.edit_text(
+                    f"⏳ **Reklama tarqatilmoqda...**\n\n"
+                    f"📊 Holat: {idx} / {total} ({percent}%)\n"
+                    f"✅ Yetkazildi: {sent}\n"
+                    f"❌ Xatolik / Blok: {failed}",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
+        # Telegram Flood limitidan himoyalanish (sekundiga ~25-30 xabar)
+        await asyncio.sleep(0.04)
+
+    await progress_msg.edit_text(
+        f"🎉 **Reklama tarqatish yakunlandi!**\n\n"
+        f"👥 Jami foydalanuvchilar: **{total}** ta\n"
+        f"✅ Muvaffaqiyatli yetkazildi: **{sent}** ta\n"
+        f"❌ Bloklaganlar / Xatolik: **{failed}** ta",
         reply_markup=get_back_to_admin_kb(),
         parse_mode="Markdown"
     )
+    await callback.answer("Reklama muvaffaqiyatli tarqatildi!", show_alert=True)
+
+@router.callback_query(BroadcastState.waiting_for_confirm, F.data == "bcast_cancel")
+async def cb_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
+    """Reklama tarqatishni bekor qilish."""
+    await state.clear()
+    await callback.message.edit_text(
+        "❌ **Reklama tarqatish bekor qilindi.**",
+        reply_markup=get_back_to_admin_kb(),
+        parse_mode="Markdown"
+    )
+    await callback.answer("Bekor qilindi.")
+
 
 # --- MODERATSIYA (OVOZLARNI TASDIQLASH VA RAD ETISH) ---
 @router.callback_query(F.data.startswith("appv:"))
