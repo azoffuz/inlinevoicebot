@@ -49,9 +49,15 @@ async def convert_audio_to_voice(input_path: str, effect: str = "normal") -> str
     stdout, stderr = await process.communicate()
 
     if process.returncode != 0:
-        logger.error(f"FFmpeg xatosi: {stderr.decode(errors='ignore')}")
+        err_msg = stderr.decode(errors='ignore').strip()
+        last_lines = "\n".join(err_msg.splitlines()[-3:]) if err_msg else "Noma'lum FFmpeg xatosi"
+        logger.error(f"FFmpeg xatosi: {err_msg}")
         if os.path.exists(output_path):
-            os.remove(output_path)
-        raise RuntimeError(f"Audio konvertatsiya muvaffaqiyatsiz bo'ldi.")
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
+        raise RuntimeError(f"{last_lines}")
 
     return output_path
+

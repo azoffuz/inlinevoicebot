@@ -42,17 +42,16 @@ async def handle_channel_post(message: Message, bot: Bot):
     # 2. Agar xabar Audio (MP3) bo'lsa, uni voice ga aylantirib kanalga qayta yuborish
     if message.audio:
         audio = message.audio
-        temp_dir = tempfile.gettempdir()
-        input_path = os.path.join(temp_dir, f"ch_in_{audio.file_unique_id}")
-        output_voice = None
-        
         try:
             file_info = await bot.get_file(audio.file_id)
             if not file_info.file_path:
                 return
             
+            ext = os.path.splitext(file_info.file_path)[1] or ".mp3"
+            input_path = os.path.join(temp_dir, f"ch_in_{audio.file_unique_id}{ext}")
             await bot.download_file(file_info.file_path, destination=input_path)
             output_voice = await convert_audio_to_voice(input_path, effect="normal")
+
             
             # Kanalga voice qilib yuboramiz
             voice_file = FSInputFile(output_voice)

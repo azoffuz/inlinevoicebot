@@ -56,31 +56,49 @@ async def cmd_help(message: Message):
     )
     await message.answer(text, parse_mode="Markdown")
 
-@router.message(F.audio | (F.document & F.document.mime_type.startswith("audio/")))
+@router.message(
+    F.audio | F.voice | (F.document & (
+        F.document.mime_type.startswith("audio/") |
+        F.document.file_name.ilike("%.mp3") |
+        F.document.file_name.ilike("%.ogg") |
+        F.document.file_name.ilike("%.wav") |
+        F.document.file_name.ilike("%.m4a") |
+        F.document.file_name.ilike("%.opus")
+    ))
+)
 async def handle_audio_message(message: Message, bot: Bot):
-    """Foydalanuvchi MP3/Audio fayl yuborganda uni qabul qilish."""
-    audio = message.audio or message.document
-    if not audio:
+    """Foydalanuvchi MP3, Audio, Voice yoki OGG fayl yuborganda uni qabul qilish."""
+    media = message.audio or message.voice or message.document
+    if not media:
         return
 
-    file_id = audio.file_id
+    file_id = media.file_id
     user = message.from_user
     is_adm = await is_admin(user.id) if user else False
     
     msg = await message.reply("⏳ Audio qayta ishlanmoqda...")
     
-    # Vaqtinchalik fayllar
     temp_dir = tempfile.gettempdir()
-    input_file_path = os.path.join(temp_dir, f"input_{audio.file_unique_id}")
+    input_file_path = None
     output_voice_path = None
     
     try:
         # Faylni Telegramdan yuklab olish
         file_info = await bot.get_file(file_id)
         if not file_info.file_path:
-            await msg.edit_text("❌ Faylni yuklab olishda xatolik yuz berdi.")
+            await msg.edit_text("❌ Telegramdan faylni yuklab olish imkoni bo'lmadi.")
             return
 
+        # Fayl kengaytmasini aniqlash (.ogg, .mp3 va h.k.)
+        ext = ""
+        if hasattr(media, "file_name") and media.file_name:
+            ext = os.path.splitext(media.file_name)[1]
+        if not ext and file_info.file_path:
+            ext = os.path.splitext(file_info.file_path)[1]
+        if not ext:
+            ext = ".ogg" if message.voice else ".mp3"
+
+        input_file_path = os.path.join(temp_dir, f"input_{media.file_unique_id}{ext}")
         await bot.download_file(file_info.file_path, destination=input_file_path)
 
         # Standart normal ovozga aylantirish
@@ -99,10 +117,12 @@ async def handle_audio_message(message: Message, bot: Bot):
 
     except Exception as e:
         logger.error(f"Audio konvertatsiya xatosi: {e}")
-        await msg.edit_text(f"❌ Xatolik yuz berdi: Audio faylni qayta ishlab bo'lmadi.")
+        err_detail = str(e)
+        if len(err_detail) > 300:
+            err_detail = err_detail[-300:]
+        await msg.edit_text(f"❌ Xatolik yuz berdi:\n`{err_detail}`", parse_mode="Markdown")
     finally:
-        # Fayllarni tozalash
-        if os.path.exists(input_file_path):
+        if input_file_path and os.path.exists(input_file_path):
             try:
                 os.remove(input_file_path)
             except Exception:
@@ -112,6 +132,7 @@ async def handle_audio_message(message: Message, bot: Bot):
                 os.remove(output_voice_path)
             except Exception:
                 pass
+
 
 @router.callback_query(F.data.startswith("conv:"))
 async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
@@ -126,7 +147,7 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
     await callback.answer(f"Effekt qo'llanmoqda: {effect}...")
     
     temp_dir = tempfile.gettempdir()
-    input_path = os.path.join(temp_dir, f"fx_in_{file_id[-10:]}")
+    input_path = None
     output_voice = None
     
     try:
@@ -134,6 +155,10 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
         if not file_info.file_path:
             await callback.message.reply("❌ Fayl topilmadi.")
             return
+
+        ext = os.path.splitext(file_info.file_path)[1] or ".ogg"
+        input_path = os.path.join(temp_dir, f"fx_in_{file_id[-10:]}{ext}")
+
 
         await bot.download_file(file_info.file_path, destination=input_path)
         output_voice = await convert_audio_to_voice(input_path, effect=effect)

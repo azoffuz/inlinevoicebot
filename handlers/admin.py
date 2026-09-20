@@ -149,14 +149,16 @@ async def process_voice_title(message: Message, state: FSMContext, bot: Bot):
     try:
         # Agar audio (MP3) bo'lsa, uni avval voice (.ogg) ga o'tkazish kerak
         if is_audio:
-            input_path = os.path.join(temp_dir, f"add_in_{file_unique_id}")
             file_info = await bot.get_file(file_id)
             if not file_info.file_path:
                 await msg.edit_text("❌ Faylni yuklab olishda xatolik yuz berdi.")
                 return
+            ext = os.path.splitext(file_info.file_path)[1] or ".mp3"
+            input_path = os.path.join(temp_dir, f"add_in_{file_unique_id}{ext}")
             await bot.download_file(file_info.file_path, destination=input_path)
             output_path = await convert_audio_to_voice(input_path, effect="normal")
             voice_to_send = FSInputFile(output_path)
+
         else:
             voice_to_send = file_id
 
