@@ -419,17 +419,19 @@ async def cb_approve_submission(callback: CallbackQuery, bot: Bot):
     channel_msg_id = None
 
     try:
-        # Storage kanalga yuborish
-        if config.STORAGE_CHANNEL_ID:
-            sent_msg = await bot.send_voice(
-                chat_id=config.STORAGE_CHANNEL_ID,
-                voice=file_id,
-                caption=f"🎙 {title} (Yuboruvchi: {sub.get('user_name')})"
-            )
-            final_voice_id = sent_msg.voice.file_id
-            final_unique_id = sent_msg.voice.file_unique_id
-            duration = sent_msg.voice.duration
-            channel_msg_id = sent_msg.message_id
+        from services.notifier import upload_voice_to_storage
+        # Ovozni saqlash omboriga (guruhdagi storage thread yoki kanalga) yuborish
+        caption = f"🎙 {title} (Yuboruvchi: {sub.get('user_name')})"
+        f_id, f_uniq_id, dur, ch_msg_id = await upload_voice_to_storage(
+            bot=bot,
+            voice_input=file_id,
+            caption=caption
+        )
+
+        final_voice_id = f_id or file_id
+        final_unique_id = f_uniq_id
+        duration = dur or duration
+        channel_msg_id = ch_msg_id
 
         # Asosiy voices jadvaliga saqlash
         await add_voice(
@@ -444,13 +446,21 @@ async def cb_approve_submission(callback: CallbackQuery, bot: Bot):
         # Holatni yangilash
         await update_submission_status(sub_id, "approved")
 
-        # Admindagi xabarni yangilash
-        current_caption = callback.message.caption or ""
-        await callback.message.edit_caption(
-            caption=f"{current_caption}\n\n✅ **TASDIQLANDI VA BAZAGA QO'SHILDI!**",
-            reply_markup=None,
-            parse_mode="Markdown"
-        )
+        # Guruhdan so'rov xabarini o'chirish (agar guruhda bo'lsa)
+        if callback.message.chat.type in ["group", "supergroup"]:
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.answer("✅ Ovoz tasdiqlandi va omborga saqlandi! So'rov o'chirildi.", show_alert=True)
+        else:
+            current_caption = callback.message.caption or ""
+            await callback.message.edit_caption(
+                caption=f"{current_caption}\n\n✅ **TASDIQLANDI VA BAZAGA QO'SHILDI!**",
+                reply_markup=None,
+                parse_mode="Markdown"
+            )
+            await callback.answer("✅ Tasdiqlandi!")
 
         # Foydalanuvchiga xushxabar yuborish
         try:
@@ -488,13 +498,21 @@ async def cb_reject_submission(callback: CallbackQuery, bot: Bot):
 
     await update_submission_status(sub_id, "rejected")
 
-    current_caption = callback.message.caption or ""
-    await callback.message.edit_caption(
-        caption=f"{current_caption}\n\n❌ **RAD ETILDI.**",
-        reply_markup=None,
-        parse_mode="Markdown"
-    )
-    await callback.answer("Rad etildi.")
+    # Guruhdan so'rov xabarini o'chirish
+    if callback.message.chat.type in ["group", "supergroup"]:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.answer("❌ Ovoz rad etildi va guruhdan o'chirildi.", show_alert=True)
+    else:
+        current_caption = callback.message.caption or ""
+        await callback.message.edit_caption(
+            caption=f"{current_caption}\n\n❌ **RAD ETILDI.**",
+            reply_markup=None,
+            parse_mode="Markdown"
+        )
+        await callback.answer("Rad etildi.")
 
     # Foydalanuvchiga xabar berish
     user_id = sub.get("user_id")
@@ -507,4 +525,5 @@ async def cb_reject_submission(callback: CallbackQuery, bot: Bot):
         )
     except Exception:
         pass
+
 

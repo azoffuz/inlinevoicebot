@@ -49,11 +49,19 @@ CREATE TABLE IF NOT EXISTS voice_submissions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 5. Bot Settings table (Guruh threadlari va tizim sozlamalari)
+CREATE TABLE IF NOT EXISTS bot_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- RLS (Row Level Security) - Service role kaliti ishlatilganda hamma huquq bor
 ALTER TABLE voices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bot_admins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bot_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE voice_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bot_settings ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow service role full access to voices" ON voices
     FOR ALL USING (true) WITH CHECK (true);
@@ -66,4 +74,8 @@ CREATE POLICY "Allow service role full access to bot_users" ON bot_users
 
 CREATE POLICY "Allow service role full access to voice_submissions" ON voice_submissions
     FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow service role full access to bot_settings" ON bot_settings
+    FOR ALL USING (true) WITH CHECK (true);
+
 

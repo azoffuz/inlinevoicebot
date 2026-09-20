@@ -7,7 +7,9 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 
 from config import config
-from handlers import user, inline, admin, channel
+from handlers import user, inline, admin, channel, group
+from services.notifier import notify_system_status
+import datetime
 
 # Logging sozlash
 logging.basicConfig(
@@ -49,6 +51,7 @@ async def start_bot():
 
     # Handler routerlarini ro'yxatdan o'tkazish
     dp.include_router(admin.router)
+    dp.include_router(group.router)
     dp.include_router(inline.router)
     dp.include_router(channel.router)
     dp.include_router(user.router)
@@ -60,7 +63,8 @@ async def start_bot():
         BotCommand(command="addvoice", description="Yangi ovoz taklif qilish 🎙"),
         BotCommand(command="top", description="Eng ko'p jo'natilgan ovozlar 🔥"),
         BotCommand(command="help", description="Qo'llanma va yordam 📖"),
-        BotCommand(command="admin", description="Admin paneli 🛠")
+        BotCommand(command="admin", description="Admin paneli 🛠"),
+        BotCommand(command="setup_threads", description="Guruhda mavzular ochish 🧵")
     ]
     try:
         await bot.set_my_commands(commands)
@@ -70,8 +74,22 @@ async def start_bot():
     # Eski kutilayotgan yangilanishlarni o'chirish
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Bot polling rejimida ishga tushirilmoqda...")
-    
+
+    # Status threadga xabar yuborish
+    try:
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await notify_system_status(
+            bot,
+            f"🚀 **Bot muvaffaqiyatli ishga tushdi!**\n\n"
+            f"🕒 Vaqt: `{now_str}`\n"
+            f"✅ Render.com va Supabase faol.\n"
+            f"⚡️ Barcha tizimlar normal rejimda ishlamoqda."
+        )
+    except Exception as e:
+        logger.error(f"Startup status xatoligi: {e}")
+
     await dp.start_polling(bot)
+
 
 
 async def main():

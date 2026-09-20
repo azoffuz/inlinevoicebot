@@ -178,7 +178,7 @@ async def process_user_voice_title(message: Message, state: FSMContext, bot: Bot
         parse_mode="Markdown"
     )
 
-    # 2. Barcha adminlarga xabar yuborish
+    # 2. Moderatsiyaga yuborish (Guruhdagi 'Ovoz Takliflari' threadiga yoki adminlarga)
     admin_caption = (
         f"📥 **Yangi ovoz taklifi!**\n\n"
         f"👤 Yuboruvchi: {user_name} [ID: `{user.id}`]\n"
@@ -186,28 +186,14 @@ async def process_user_voice_title(message: Message, state: FSMContext, bot: Bot
         f"🕒 Davomiyligi: {duration} sek"
     )
 
-    admin_ids = set()
-    if config.SUPERADMIN_ID:
-        admin_ids.add(config.SUPERADMIN_ID)
-    try:
-        db_admins = await get_all_admins()
-        for adm in db_admins:
-            if adm.get("user_id"):
-                admin_ids.add(adm["user_id"])
-    except Exception:
-        pass
+    from services.notifier import forward_submission_for_review
+    await forward_submission_for_review(
+        bot=bot,
+        voice_file_id=file_id,
+        caption=admin_caption,
+        reply_markup=get_moderation_kb(sub_id)
+    )
 
-    for aid in admin_ids:
-        try:
-            await bot.send_voice(
-                chat_id=aid,
-                voice=file_id,
-                caption=admin_caption,
-                reply_markup=get_moderation_kb(sub_id),
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logger.error(f"Adminga taklif yuborishda xatolik (ID: {aid}): {e}")
 
 
 @router.message(
