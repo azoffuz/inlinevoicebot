@@ -26,6 +26,19 @@ async def cmd_start(message: Message):
     
     bot_user = await message.bot.get_me()
     is_adm = await is_admin(user.id) if user else False
+
+    # Majburiy obuna tekshiruvi
+    if user and not is_adm:
+        from database.channels import check_user_subscriptions
+        from utils.keyboards import get_subscription_check_kb
+        is_sub, unsubs = await check_user_subscriptions(message.bot, user.id)
+        if not is_sub:
+            return await message.answer(
+                "⚠️ **Botdan to'liq foydalanish uchun quyidagi rasmiy kanallarimizga a'zo bo'ling:**\n\n"
+                "A'zo bo'lgach, 'Tekshirish' tugmasini bosing:",
+                reply_markup=get_subscription_check_kb(unsubs),
+                parse_mode="Markdown"
+            )
     
     text = (
         f"Assalomu alaykum, {user.first_name if user else 'foydalanuvchi'}! 🎙\n\n"
@@ -34,8 +47,8 @@ async def cmd_start(message: Message):
         f"Istalgan chatga boring va shunchaki yozing:\n"
         f"`@{bot_user.username}`\n"
         f"Hech narsa yozish shart emas — eng ko'p jo'natilgan ovozlar darhol chiqadi!\n\n"
-        f"🎵 **MP3 -> Voice Konverter:**\n"
-        f"Menga istalgan musiqa yoki audio yuboring, men uni Telegram ovozli xabari (Voice) qilib beraman!"
+        f"🎵 **MP3 -> Voice Konverter & Effektlar:**\n"
+        f"Menga istalgan musiqa yoki audio yuboring, uni Telegram ovozli xabari qilib beraman!"
     )
     
     if is_adm:
@@ -43,17 +56,24 @@ async def cmd_start(message: Message):
         
     await message.answer(text, parse_mode="Markdown")
 
+
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from config import config
 from database.voices import get_top_voices
 from database.admins import get_all_admins
 from database.submissions import create_submission
-from utils.keyboards import get_moderation_kb
+from utils.keyboards import get_moderation_kb, get_audio_main_kb, get_audio_effects_kb, get_subscription_check_kb
+from database.channels import check_user_subscriptions
 
 class UserSubmitVoiceState(StatesGroup):
     waiting_for_media = State()
     waiting_for_title = State()
+    waiting_for_tags = State()
+
+class TrimAudioState(StatesGroup):
+    waiting_for_range = State()
+
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
@@ -164,15 +184,35 @@ async def process_user_voice_media(message: Message, state: FSMContext, bot: Bot
     await message.reply("Endi ushbu ovoz uchun nom (sarlavha) kiriting:")
 
 @router.message(UserSubmitVoiceState.waiting_for_title, F.text)
-async def process_user_voice_title(message: Message, state: FSMContext, bot: Bot):
-    """Ovoz nomi kiritildi, moderatsiyaga yuborish."""
+async def process_user_voice_title(message: Message, state: FSMContext):
+    """Ovoz nomi kiritildi, endi teglar so'raymiz."""
     title = message.text.strip()
+    await state.update_data(title=title)
+    await state.set_state(UserSubmitVoiceState.waiting_for_tags)
+    await message.reply(
+        "🏷 **Qo'shimcha teglar / kalit so'zlar kiritish:**\n\n"
+        "Ovoz inline qidiruvda oson topilishi uchun bir nechta so'z yoki teglar kiriting:\n"
+        "*(Masalan: `#kino #kulgi` yoki `kino, prikol, kulgili, mem`)*\n\n"
+        "Agar teg kiritishni xohlamasangiz, /skip deb yozing:"
+    )
+
+@router.message(UserSubmitVoiceState.waiting_for_tags, F.text)
+async def process_user_voice_tags(message: Message, state: FSMContext, bot: Bot):
+    """Teglar kiritildi, moderatsiyaga yuborish."""
+    tag_input = message.text.strip()
     data = await state.get_data()
     await state.clear()
 
+    title = data.get("title", "Voice")
     file_id = data.get("file_id")
     duration = data.get("duration", 0)
     user = message.from_user
+
+    # Teglarni ajratish
+    tags = []
+    if tag_input != "/skip":
+        clean_words = tag_input.replace(",", " ").replace("#", " ").split()
+        tags = [w.strip().lower() for w in clean_words if len(w.strip()) > 1]
 
     user_name = user.full_name or user.username or str(user.id)
     if user.username:
@@ -184,17 +224,20 @@ async def process_user_voice_title(message: Message, state: FSMContext, bot: Bot
         user_name=user_name,
         title=title,
         file_id=file_id,
-        duration=duration
+        duration=duration,
+        tags=tags
     )
 
     if not sub:
         return await message.reply("❌ Xatolik: Taklifni saqlab bo'lmadi.")
 
     sub_id = str(sub.get("id"))
+    tags_display = " ".join([f"#{t}" for t in tags]) if tags else "Mavjud emas"
 
     await message.reply(
         f"✅ **Rahmat! Taklifingiz qabul qilindi.**\n\n"
-        f"🎙 Nomi: **{title}**\n\n"
+        f"🎙 Nomi: **{title}**\n"
+        f"🏷 Teglar: {tags_display}\n\n"
         f"⏳ Adminlar tomonidan tekshirilgach va tasdiqlangach, u darhol barcha uchun inline qidiruvga qo'shiladi va sizga xabar beramiz!",
         parse_mode="Markdown"
     )
@@ -203,10 +246,12 @@ async def process_user_voice_title(message: Message, state: FSMContext, bot: Bot
     from html import escape
     safe_name = escape(user_name)
     safe_title = escape(title)
+    safe_tags = escape(tags_display)
     admin_caption = (
         f"📥 <b>Yangi ovoz taklifi!</b>\n\n"
         f"👤 Yuboruvchi: {safe_name} [ID: <code>{user.id}</code>]\n"
         f"🎙 Sarlavha: <b>{safe_title}</b>\n"
+        f"🏷 Teglar: {safe_tags}\n"
         f"🕒 Davomiyligi: {duration} sek"
     )
 
@@ -220,6 +265,7 @@ async def process_user_voice_title(message: Message, state: FSMContext, bot: Bot
 
     if not delivered:
         logger.warning(f"Ovoz taklifi hech qaysi adminga yoki guruhga yetib bormadi! SUPERADMIN_ID: {config.SUPERADMIN_ID}, ADMIN_GROUP_ID: {config.ADMIN_GROUP_ID}")
+
 
 
 
@@ -279,16 +325,17 @@ async def handle_audio_message(message: Message, bot: Bot):
         # Standart normal ovozga aylantirish
         output_voice_path = await convert_audio_to_voice(input_file_path, effect="normal")
 
-        # Ovozli xabar qilib jo'natish
+        # Ovozli xabar qilib jo'natish (Asosiy 2 ta tugma bilan)
         voice_file = FSInputFile(output_voice_path)
-        caption = "🎙 Ovozli xabar tayyor!\nBoshqa effektlarda sinab ko'rish uchun quyidagi tugmalarni bosing:"
+        caption = "🎙 Ovoz qabul qilindi!\nQuyidagi amallardan birini tanlang:"
         
         await message.reply_voice(
             voice=voice_file,
             caption=caption,
-            reply_markup=get_audio_convert_kb(is_adm=is_adm)
+            reply_markup=get_audio_main_kb()
         )
         await msg.delete()
+
 
     except Exception as e:
         logger.error(f"Audio konvertatsiya xatosi: {e}")
@@ -359,7 +406,7 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
         await callback.message.reply_voice(
             voice=voice_file,
             caption=f"✨ **Ovoz effekti:** {effect_names.get(effect, effect)}\nBoshqa effektlarni ham sinab ko'rishingiz mumkin:",
-            reply_markup=get_audio_convert_kb(),
+            reply_markup=get_audio_effects_kb(),
             parse_mode="Markdown"
         )
 
@@ -379,9 +426,27 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
                 pass
 
 
+@router.callback_query(F.data == "open_effects")
+async def cb_open_effects(callback: CallbackQuery):
+    """Faqat 'Ovoz effektlari' bosilgandagina 9 ta effekt menyusi ochiladi."""
+    try:
+        await callback.message.edit_reply_markup(reply_markup=get_audio_effects_kb())
+    except Exception:
+        pass
+    await callback.answer()
+
+@router.callback_query(F.data == "back_to_audio_main")
+async def cb_back_to_audio_main(callback: CallbackQuery):
+    """Asosiy 2 ta tugmali menyuga qaytish."""
+    try:
+        await callback.message.edit_reply_markup(reply_markup=get_audio_main_kb())
+    except Exception:
+        pass
+    await callback.answer()
+
 @router.callback_query(F.data == "suggest_voice")
 async def cb_suggest_voice_from_audio(callback: CallbackQuery, state: FSMContext):
-    """MP3 konvert qilingach 'Bazaga taklif qilish' tugmasi bosilganda."""
+    """'Ovoz qo'shish' tugmasi bosilganda."""
     media = callback.message.voice or callback.message.audio
     if not media and callback.message.reply_to_message:
         orig = callback.message.reply_to_message
@@ -394,5 +459,102 @@ async def cb_suggest_voice_from_audio(callback: CallbackQuery, state: FSMContext
     await state.update_data(file_id=media.file_id, duration=getattr(media, "duration", 0))
     await callback.message.reply("Ushbu ovoz uchun nom (sarlavha) yozing:\n\n(Masalan: Gap yo'q brat)")
     await callback.answer()
+
+# --- AUDIO TRIMMER (KESISH) ---
+@router.callback_query(F.data == "open_trim")
+async def cb_open_trim(callback: CallbackQuery, state: FSMContext):
+    """Audio kesish rejimi."""
+    media = callback.message.voice or callback.message.audio
+    if not media and callback.message.reply_to_message:
+        orig = callback.message.reply_to_message
+        media = orig.voice or orig.audio or orig.document
+    if not media:
+        return await callback.answer("Audio topilmadi.", show_alert=True)
+
+    await state.set_state(TrimAudioState.waiting_for_range)
+    await state.update_data(file_id=media.file_id, file_unique_id=media.file_unique_id)
+    await callback.message.reply(
+        "✂️ **Audio kesish bo'limi:**\n\n"
+        "Qaysi vaqt oralig'ini kesmoqchisiz? Boshlanish va tugash vaqtini yozing:\n"
+        "Misol uchun:\n"
+        "• `00:10 - 00:25`\n"
+        "• yoki soniyalarda: `10 - 25`\n\n"
+        "(Bekor qilish uchun /cancel deb yozing)"
+    )
+    await callback.answer()
+
+@router.message(TrimAudioState.waiting_for_range, F.text)
+async def process_audio_trim(message: Message, state: FSMContext, bot: Bot):
+    """Vaqt oralig'i kiritildi, kesish va qaytarish."""
+    text = message.text.strip()
+    if "-" not in text:
+        return await message.reply("Iltimos, formatni to'g'ri kiriting! Masalan: `00:10 - 00:25` yoki `10 - 25`")
+
+    parts = text.split("-")
+    start_time = parts[0].strip()
+    end_time = parts[1].strip()
+
+    data = await state.get_data()
+    await state.clear()
+
+    file_id = data.get("file_id")
+    file_unique_id = data.get("file_unique_id")
+
+    msg = await message.reply("✂️ Audio kesilmoqda...")
+
+    temp_dir = tempfile.gettempdir()
+    input_path = None
+    output_path = None
+
+    try:
+        from services.audio_converter import trim_audio
+        file_info = await bot.get_file(file_id)
+        ext = os.path.splitext(file_info.file_path)[1] or ".mp3"
+        input_path = os.path.join(temp_dir, f"trim_in_{file_unique_id}{ext}")
+        await bot.download_file(file_info.file_path, destination=input_path)
+
+        output_path = await trim_audio(input_path, start_time, end_time)
+
+        voice_file = FSInputFile(output_path)
+        await message.reply_voice(
+            voice=voice_file,
+            caption=f"✂️ **Kesilgan qism:** {start_time} - {end_time}\nQuyidagi amallardan birini tanlang:",
+            reply_markup=get_audio_main_kb()
+        )
+        await msg.delete()
+    except Exception as e:
+        logger.error(f"Trim xatosi: {e}")
+        await msg.edit_text(f"❌ Kesishda xatolik yuz berdi: {e}")
+    finally:
+        if input_path and os.path.exists(input_path):
+            try: os.remove(input_path)
+            except Exception: pass
+        if output_path and os.path.exists(output_path):
+            try: os.remove(output_path)
+            except Exception: pass
+
+# --- MAJBURIY OBUNA TEKSHIRISH ---
+@router.callback_query(F.data == "check_subscription")
+async def cb_check_subscription(callback: CallbackQuery, bot: Bot):
+    """A'zo bo'ldim tugmasi bosilganda tekshirish."""
+    from database.channels import check_user_subscriptions
+    is_sub, unsubs = await check_user_subscriptions(bot, callback.from_user.id)
+    if is_sub:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(
+            "✅ **Tabriklaymiz! Barcha rasmiy kanallarimizga a'zo bo'ldingiz.**\n\n"
+            "Endi botdan va ovoz effektlaridan to'liq foydalanishingiz mumkin! 🎙",
+            parse_mode="Markdown"
+        )
+    else:
+        await callback.answer("❌ Hali barcha kanallarga a'zo bo'lmadingiz!", show_alert=True)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=get_subscription_check_kb(unsubs))
+        except Exception:
+            pass
+
 
 

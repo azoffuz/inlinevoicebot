@@ -9,7 +9,8 @@ async def create_submission(
     user_name: str,
     title: str,
     file_id: str,
-    duration: int = 0
+    duration: int = 0,
+    tags: Optional[list] = None
 ) -> Optional[Dict[str, Any]]:
     """Foydalanuvchi tomonidan yangi ovoz taklifi yaratish."""
     if not supabase:
@@ -21,9 +22,11 @@ async def create_submission(
             "title": title,
             "file_id": file_id,
             "duration": duration,
+            "tags": tags or [],
             "status": "pending"
         }
         res = supabase.table("voice_submissions").insert(data).execute()
+
         return res.data[0] if res.data else None
     except Exception as e:
         logger.error(f"create_submission xatosi: {e}")

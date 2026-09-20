@@ -1,6 +1,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def get_admin_menu_kb(is_super: bool = False) -> InlineKeyboardMarkup:
+
     """Admin panel asosiy menyusi."""
     keyboard = [
         [
@@ -10,6 +11,10 @@ def get_admin_menu_kb(is_super: bool = False) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="📂 Ovozlar ro'yxati", callback_data="admin_list_voices_0"),
             InlineKeyboardButton(text="📢 Xabar tarqatish", callback_data="admin_broadcast")
+        ],
+        [
+            InlineKeyboardButton(text="📢 Majburiy obuna", callback_data="admin_channels"),
+            InlineKeyboardButton(text="📥 Baza Backup", callback_data="admin_backup")
         ]
     ]
     if is_super:
@@ -18,8 +23,22 @@ def get_admin_menu_kb(is_super: bool = False) -> InlineKeyboardMarkup:
         ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_audio_convert_kb(is_adm: bool = False) -> InlineKeyboardMarkup:
-    """Audio/Voice yuborilganda effektlar va konvertatsiya tugmalari menyusi."""
+def get_audio_main_kb() -> InlineKeyboardMarkup:
+    """Audio/Voice yuborilganda chiquvchi 2 ta asosiy tugma va qulay vositalar."""
+    keyboard = [
+        [
+            InlineKeyboardButton(text="➕ Ovoz qo'shish", callback_data="suggest_voice"),
+            InlineKeyboardButton(text="🎨 Ovoz effektlari", callback_data="open_effects")
+        ],
+        [
+            InlineKeyboardButton(text="✂️ Audio kesish", callback_data="open_trim"),
+            InlineKeyboardButton(text="🚀 Do'stlarga yuborish", switch_inline_query="")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_audio_effects_kb() -> InlineKeyboardMarkup:
+    """Faqat 'Ovoz effektlari' bosilgandagina ochiluvchi effektlar menyusi."""
     keyboard = [
         [
             InlineKeyboardButton(text="🎙 Oddiy", callback_data="fx:normal"),
@@ -39,10 +58,11 @@ def get_audio_convert_kb(is_adm: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🐢 0.75x Sekin", callback_data="fx:slow")
         ],
         [
-            InlineKeyboardButton(text="💡 Bazaga ovoz taklif qilish", callback_data="suggest_voice")
+            InlineKeyboardButton(text="🔙 Asosiy menyu", callback_data="back_to_audio_main")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 
 def get_moderation_kb(sub_id: str) -> InlineKeyboardMarkup:
@@ -71,3 +91,16 @@ def get_back_to_admin_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Admin Menyusi", callback_data="admin_main_menu")]
     ])
+
+def get_subscription_check_kb(unsubscribed_channels: list) -> InlineKeyboardMarkup:
+    """Majburiy obuna tekshiruvi uchun kanallar va tasdiqlash tugmalari."""
+    keyboard = []
+    for ch in unsubscribed_channels:
+        keyboard.append([
+            InlineKeyboardButton(text=f"📢 {ch.get('name', 'Kanal')}", url=ch.get("url", "https://t.me"))
+        ])
+    keyboard.append([
+        InlineKeyboardButton(text="✅ A'zo bo'ldim / Tekshirish", callback_data="check_subscription")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+

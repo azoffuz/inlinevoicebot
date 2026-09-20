@@ -12,6 +12,8 @@ from database.admins import is_admin, is_superadmin, add_admin, remove_admin, ge
 from database.voices import add_voice, get_top_voices, delete_voice, get_total_voices_count
 from database.users import get_total_users_count, get_all_user_ids
 from database.submissions import get_submission, update_submission_status
+from database.channels import get_required_channels, add_required_channel, remove_required_channel
+from database.backup import create_database_backup
 from services.audio_converter import convert_audio_to_voice
 from utils.keyboards import get_admin_menu_kb, get_back_to_admin_kb
 
@@ -26,6 +28,9 @@ class AddVoiceState(StatesGroup):
 
 class AddAdminState(StatesGroup):
     waiting_for_admin_id = State()
+
+class AddChannelState(StatesGroup):
+    waiting_for_channel_info = State()
 
 class BroadcastState(StatesGroup):
     waiting_for_message = State()
@@ -392,7 +397,7 @@ async def process_broadcast_preview(message: Message, state: FSMContext, bot: Bo
 
     # 1. Reklama xabarining o'zini adminga ko'rsatamiz (Preview)
     await message.reply("👁 **Reklama xabaringiz foydalanuvchilarga shunday ko'rinadi:**")
-    await message.copy_to(chat_id=message.chat.id)
+    await bot.copy_message(chat_id=message.chat.id, from_chat_id=message.chat.id, message_id=message.message_id)
 
     # 2. Tasdiqlash tugmalari
     confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -621,5 +626,171 @@ async def cb_reject_submission(callback: CallbackQuery, bot: Bot):
         )
     except Exception:
         pass
+
+# --- MAJBURIY OBUNA KANALLARI BOSHQARUVI ---
+@router.callback_query(F.data == "admin_channels")
+async def cb_admin_channels(callback: CallbackQuery):
+    """Majburiy kanallar ro'yxatini ko'rsatish."""
+    if not await is_admin(callback.from_user.id):
+        return await callback.answer("Ruxsat yo'q!", show_alert=True)
+
+    channels = await get_required_channels()
+    text = (
+        "📢 **Majburiy Obuna Kanallari Boshqaruvi**\n\n"
+        "Foydalanuvchilar botdan to'liq foydalanishlari uchun quyidagi kanallarga a'zo bo'lishlari so'raladi.\n\n"
+    )
+    if not channels:
+        text += "*(Hozircha majburiy kanallar qo'shilmagan)*"
+    else:
+        text += f"Jami kanallar: **{len(channels)}** ta\n\n"
+        for idx, ch in enumerate(channels, start=1):
+            text += f"{idx}. **{ch.get('name')}** (`{ch.get('channel_id')}`)\n🔗 {ch.get('url')}\n\n"
+
+    keyboard = []
+    for ch in channels:
+        keyboard.append([
+            InlineKeyboardButton(text=f"🗑 O'chirish: {ch.get('name')}", callback_data=f"del_channel:{ch.get('channel_id')}")
+        ])
+    keyboard.append([
+        InlineKeyboardButton(text="➕ Yangi kanal qo'shish", callback_data="add_channel")
+    ])
+    keyboard.append([
+        InlineKeyboardButton(text="🔙 Admin Menyusi", callback_data="admin_main_menu")
+    ])
+
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="Markdown",
+        disable_web_page_preview=True
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "add_channel")
+async def cb_add_channel_prompt(callback: CallbackQuery, state: FSMContext):
+    """Yangi kanal qo'shish uchun ma'lumot so'rash."""
+    if not await is_admin(callback.from_user.id):
+        return await callback.answer("Ruxsat yo'q!", show_alert=True)
+
+    await state.set_state(AddChannelState.waiting_for_channel_info)
+    await callback.message.edit_text(
+        "📢 **Yangi majburiy kanal qo'shish:**\n\n"
+        "Kanal ma'lumotlarini quyidagi formatda yuboring:\n"
+        "`KANAL_ID | KANAL_NOMI | KANAL_LINKI`\n\n"
+        "Misol:\n"
+        "`-100123456789 | Mening Kanalim | https://t.me/kanalim`\n\n"
+        "*(Eslatma: Bot ushbu kanalda administrator bo'lishi kerak!)*\n\n"
+        "Bekor qilish uchun: /cancel",
+        reply_markup=get_back_to_admin_kb(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@router.message(AddChannelState.waiting_for_channel_info, F.text)
+async def process_add_channel(message: Message, state: FSMContext, bot: Bot):
+    """Kanal ma'lumotlarini qabul qilish va saqlash."""
+    if not await is_admin(message.from_user.id):
+        return
+
+    text = message.text.strip()
+    if "|" not in text:
+        return await message.reply(
+            "Iltimos, formatga rioya qiling!\n\n"
+            "`KANAL_ID | KANAL_NOMI | KANAL_LINKI`\n"
+            "Misol:\n`-100123456789 | Mening Kanalim | https://t.me/kanalim`",
+            parse_mode="Markdown"
+        )
+
+    parts = [p.strip() for p in text.split("|")]
+    if len(parts) < 3:
+        return await message.reply("Barcha 3 ta maydonni to'ldiring: KANAL_ID | KANAL_NOMI | KANAL_LINKI")
+
+    channel_id, name, url = parts[0], parts[1], parts[2]
+
+    # Botning kanaldagi huquqini tekshirish
+    try:
+        member = await bot.get_chat_member(chat_id=channel_id, user_id=(await bot.get_me()).id)
+        if member.status not in ["administrator", "creator"]:
+            return await message.reply("⚠️ Bot ushbu kanalda administrator emas! Botga kanalda admin huquqini berib, qaytadan urinib ko'ring.")
+    except Exception as e:
+        logger.warning(f"Kanal huquqini tekshirishda ogohlantirish ({channel_id}): {e}")
+
+    ok = await add_required_channel(channel_id=channel_id, name=name, url=url)
+    await state.clear()
+
+    if ok:
+        await message.reply(
+            f"✅ **Kanal muvaffaqiyatli qo'shildi!**\n\n"
+            f"📢 Nomi: **{name}**\n"
+            f"🆔 ID: `{channel_id}`\n"
+            f"🔗 Havola: {url}",
+            reply_markup=get_back_to_admin_kb(),
+            parse_mode="Markdown"
+        )
+    else:
+        await message.reply("❌ Kanalni saqlashda xatolik yuz berdi.", reply_markup=get_back_to_admin_kb())
+
+@router.callback_query(F.data.startswith("del_channel:"))
+async def cb_delete_channel(callback: CallbackQuery):
+    """Kanalni ro'yxatdan o'chirish."""
+    if not await is_admin(callback.from_user.id):
+        return await callback.answer("Ruxsat yo'q!", show_alert=True)
+
+    channel_id = callback.data.split(":")[1]
+    ok = await remove_required_channel(channel_id)
+    if ok:
+        await callback.answer("✅ Kanal olib tashlandi!", show_alert=True)
+        await cb_admin_channels(callback)
+    else:
+        await callback.answer("❌ O'chirishda xatolik yuz berdi.", show_alert=True)
+
+# --- DATABASE BACKUP EXPORT ---
+@router.callback_query(F.data == "admin_backup")
+async def cb_admin_backup(callback: CallbackQuery, bot: Bot):
+    """Supabase bazasi to'liq zaxira nusxasini (JSON) eksport qilish va yuborish."""
+    if not await is_admin(callback.from_user.id):
+        return await callback.answer("Ruxsat yo'q!", show_alert=True)
+
+    await callback.answer("Zaxira nusxasi tayyorlanmoqda...")
+    msg = await callback.message.reply("⏳ Baza ma'lumotlari to'planmoqda va eksport qilinmoqda...")
+
+    backup_path = None
+    try:
+        backup_path, counts = await create_database_backup()
+        doc = FSInputFile(backup_path)
+
+        voices_cnt = counts.get("voices", 0)
+        users_cnt = counts.get("bot_users", 0)
+        admins_cnt = counts.get("bot_admins", 0)
+        subs_cnt = counts.get("voice_submissions", 0)
+        settings_cnt = counts.get("bot_settings", 0)
+
+        caption = (
+            "📦 <b>Baza to'liq zaxira nusxasi (Backup JSON)</b>\n\n"
+            f"🎙 Ovozlar (voices): <b>{voices_cnt}</b> ta\n"
+            f"👥 Foydalanuvchilar: <b>{users_cnt}</b> ta\n"
+            f"👮‍♂️ Adminlar: <b>{admins_cnt}</b> ta\n"
+            f"📥 Takliflar: <b>{subs_cnt}</b> ta\n"
+            f"⚙️ Sozlamalar: <b>{settings_cnt}</b> ta\n\n"
+            "✅ Ushbu faylni saqlab qo'yishingiz yoki qayta tiklashda foydalanishingiz mumkin."
+        )
+
+        await callback.message.reply_document(
+            document=doc,
+            caption=caption,
+            parse_mode="HTML"
+        )
+        await msg.delete()
+
+    except Exception as e:
+        logger.error(f"Backup yaratishda xatolik: {e}")
+        await msg.edit_text(f"❌ Backup olishda xatolik yuz berdi: {e}")
+    finally:
+        if backup_path and os.path.exists(backup_path):
+            try:
+                os.remove(backup_path)
+            except Exception:
+                pass
+
 
 

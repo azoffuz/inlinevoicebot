@@ -59,16 +59,18 @@ async def search_voices(query: str, limit: int = 50, offset: int = 0) -> List[Di
         if not q:
             return await get_top_voices(limit, offset)
         
-        # Sarlavha bo'yicha ilike (katta-kichik harf farqisiz)
+        q_clean = q.lstrip("#").strip()
+        # Sarlavha yoki teglar bo'yicha qidiruv
         res = (
             supabase.table("voices")
             .select("*")
-            .ilike("title", f"%{q}%")
+            .or_(f"title.ilike.%{q}%,tags.cs.{{{q_clean}}}")
             .order("usage_count", desc=True)
             .range(offset, offset + limit - 1)
             .execute()
         )
         return res.data or []
+
     except Exception as e:
         logger.error(f"search_voices xatosi: {e}")
         return []

@@ -68,7 +68,50 @@ async def convert_audio_to_voice(input_path: str, effect: str = "normal") -> str
                 os.remove(output_path)
             except Exception:
                 pass
+    return output_path
+
+
+async def trim_audio(input_path: str, start_time: str, end_time: str) -> str:
+    """
+    Audioni berilgan vaqt oralig'ida kesib, Telegram Voice (.ogg) qilib beradi.
+    Vaqt formati: '00:15' yoki '15' (soniya).
+    """
+    output_fd, output_path = tempfile.mkstemp(suffix=".ogg")
+    os.close(output_fd)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(start_time),
+        "-to", str(end_time),
+        "-i", input_path,
+        "-c:a", "libopus",
+        "-b:a", "64k",
+        "-vbr", "on",
+        "-compression_level", "10",
+        "-ar", "48000",
+        "-ac", "1",
+        output_path
+    ]
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        err_msg = stderr.decode(errors='ignore').strip()
+        last_lines = "\n".join(err_msg.splitlines()[-3:]) if err_msg else "Kesishda xatolik"
+        logger.error(f"FFmpeg trim xatosi: {err_msg}")
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
         raise RuntimeError(f"{last_lines}")
 
     return output_path
+
 
