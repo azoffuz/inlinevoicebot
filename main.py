@@ -53,11 +53,26 @@ async def start_bot():
     dp.include_router(channel.router)
     dp.include_router(user.router)
 
+    # Bot buyruqlari menyusini o'rnatish
+    from aiogram.types import BotCommand
+    commands = [
+        BotCommand(command="start", description="Botni qayta ishga tushirish 🔄"),
+        BotCommand(command="addvoice", description="Yangi ovoz taklif qilish 🎙"),
+        BotCommand(command="top", description="Eng ko'p jo'natilgan ovozlar 🔥"),
+        BotCommand(command="help", description="Qo'llanma va yordam 📖"),
+        BotCommand(command="admin", description="Admin paneli 🛠")
+    ]
+    try:
+        await bot.set_my_commands(commands)
+    except Exception as e:
+        logger.error(f"set_my_commands xatosi: {e}")
+
     # Eski kutilayotgan yangilanishlarni o'chirish
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Bot polling rejimida ishga tushirilmoqda...")
     
     await dp.start_polling(bot)
+
 
 async def main():
     """Asosiy kirish nuqtasi: Bot va Web serverni parallel yurgizish."""

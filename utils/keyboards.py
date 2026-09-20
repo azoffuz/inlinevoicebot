@@ -28,9 +28,22 @@ def get_audio_convert_kb(is_adm: bool = False) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🐿 Chipmunk (Tez)", callback_data="fx:chipmunk"),
             InlineKeyboardButton(text="🔈 Basoviy (Chuqur)", callback_data="fx:deep")
+        ],
+        [
+            InlineKeyboardButton(text="💡 Bazaga ovoz taklif qilish", callback_data="suggest_voice")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_moderation_kb(sub_id: str) -> InlineKeyboardMarkup:
+    """Adminlar uchun ovozni tasdiqlash yoki rad etish tugmalari."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"appv:{sub_id}"),
+            InlineKeyboardButton(text="❌ Rad etish", callback_data=f"rjct:{sub_id}")
+        ]
+    ])
+
 
 
 def get_voice_action_kb(voice_id: str) -> InlineKeyboardMarkup:

@@ -10,8 +10,10 @@ from config import config
 from database.admins import is_admin, is_superadmin, add_admin, remove_admin, get_all_admins
 from database.voices import add_voice, get_top_voices, delete_voice, get_total_voices_count
 from database.users import get_total_users_count, get_all_user_ids
+from database.submissions import get_submission, update_submission_status
 from services.audio_converter import convert_audio_to_voice
 from utils.keyboards import get_admin_menu_kb, get_back_to_admin_kb
+
 
 logger = logging.getLogger(__name__)
 
@@ -389,3 +391,120 @@ async def process_broadcast_message(message: Message, state: FSMContext, bot: Bo
         reply_markup=get_back_to_admin_kb(),
         parse_mode="Markdown"
     )
+
+# --- MODERATSIYA (OVOZLARNI TASDIQLASH VA RAD ETISH) ---
+@router.callback_query(F.data.startswith("appv:"))
+async def cb_approve_submission(callback: CallbackQuery, bot: Bot):
+    """Admin tomonidan foydalanuvchi taklifini tasdiqlash."""
+    if not await is_admin(callback.from_user.id):
+        return await callback.answer("Ruxsat yo'q!", show_alert=True)
+
+    sub_id = callback.data.split(":")[1]
+    sub = await get_submission(sub_id)
+
+    if not sub:
+        return await callback.answer("Taklif topilmadi yoki eskirgan.", show_alert=True)
+
+    if sub.get("status") != "pending":
+        return await callback.answer(f"Ushbu taklif allaqachon ko'rib chiqilgan ({sub.get('status')})!", show_alert=True)
+
+    await callback.answer("Tasdiqlanmoqda...")
+    title = sub.get("title", "Voice")
+    user_id = sub.get("user_id")
+    file_id = sub.get("file_id")
+
+    final_voice_id = file_id
+    final_unique_id = None
+    duration = sub.get("duration", 0)
+    channel_msg_id = None
+
+    try:
+        # Storage kanalga yuborish
+        if config.STORAGE_CHANNEL_ID:
+            sent_msg = await bot.send_voice(
+                chat_id=config.STORAGE_CHANNEL_ID,
+                voice=file_id,
+                caption=f"🎙 {title} (Yuboruvchi: {sub.get('user_name')})"
+            )
+            final_voice_id = sent_msg.voice.file_id
+            final_unique_id = sent_msg.voice.file_unique_id
+            duration = sent_msg.voice.duration
+            channel_msg_id = sent_msg.message_id
+
+        # Asosiy voices jadvaliga saqlash
+        await add_voice(
+            title=title,
+            file_id=final_voice_id,
+            file_unique_id=final_unique_id or f"sub_{sub_id[:12]}",
+            duration=duration,
+            channel_message_id=channel_msg_id,
+            created_by=user_id
+        )
+
+        # Holatni yangilash
+        await update_submission_status(sub_id, "approved")
+
+        # Admindagi xabarni yangilash
+        current_caption = callback.message.caption or ""
+        await callback.message.edit_caption(
+            caption=f"{current_caption}\n\n✅ **TASDIQLANDI VA BAZAGA QO'SHILDI!**",
+            reply_markup=None,
+            parse_mode="Markdown"
+        )
+
+        # Foydalanuvchiga xushxabar yuborish
+        try:
+            bot_me = await bot.get_me()
+            await bot.send_message(
+                chat_id=user_id,
+                text=(
+                    f"🎉 **Ajoyib xabar!**\n\n"
+                    f"Siz taklif qilgan **\"{title}\"** ovozi adminlar tomonidan tasdiqlandi va umumiy bazaga qo'shildi!\n\n"
+                    f"Endi uni istalgan chatda `@{bot_me.username}` orqali yuborishingiz mumkin! 🚀"
+                ),
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.error(f"Taklifni tasdiqlashda xatolik: {e}")
+        await callback.message.reply(f"❌ Xatolik yuz berdi: {e}")
+
+@router.callback_query(F.data.startswith("rjct:"))
+async def cb_reject_submission(callback: CallbackQuery, bot: Bot):
+    """Admin tomonidan foydalanuvchi taklifini rad etish."""
+    if not await is_admin(callback.from_user.id):
+        return await callback.answer("Ruxsat yo'q!", show_alert=True)
+
+    sub_id = callback.data.split(":")[1]
+    sub = await get_submission(sub_id)
+
+    if not sub:
+        return await callback.answer("Taklif topilmadi.", show_alert=True)
+
+    if sub.get("status") != "pending":
+        return await callback.answer("Bu taklif allaqachon ko'rib chiqilgan!", show_alert=True)
+
+    await update_submission_status(sub_id, "rejected")
+
+    current_caption = callback.message.caption or ""
+    await callback.message.edit_caption(
+        caption=f"{current_caption}\n\n❌ **RAD ETILDI.**",
+        reply_markup=None,
+        parse_mode="Markdown"
+    )
+    await callback.answer("Rad etildi.")
+
+    # Foydalanuvchiga xabar berish
+    user_id = sub.get("user_id")
+    title = sub.get("title", "Voice")
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text=f"Kechirasiz, siz taklif qilgan **\"{title}\"** ovozi moderatorlar tomonidan rad etildi.",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
+

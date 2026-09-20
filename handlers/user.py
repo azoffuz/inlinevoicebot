@@ -43,6 +43,18 @@ async def cmd_start(message: Message):
         
     await message.answer(text, parse_mode="Markdown")
 
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from config import config
+from database.voices import get_top_voices
+from database.admins import get_all_admins
+from database.submissions import create_submission
+from utils.keyboards import get_moderation_kb
+
+class UserSubmitVoiceState(StatesGroup):
+    waiting_for_media = State()
+    waiting_for_title = State()
+
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     """Yordam buyrug'i."""
@@ -51,10 +63,152 @@ async def cmd_help(message: Message):
         "📖 **Qo'llanma:**\n\n"
         f"1. Istalgan chatda `@{bot_user.username}` deb yozing.\n"
         "2. Ro'yxatdan eng mashhur ovozlardan birini tanlang va do'stlaringizga yuboring.\n"
-        "3. Agar muayyan ovozni qidirmoqchi bo'lsangiz, nomini yozishingiz ham mumkin.\n"
-        "4. Botga MP3 audio yuborsangiz, uni voice qilib beradi."
+        "3. `/top` — Eng ko'p eshitilgan trend ovozlar.\n"
+        "4. `/addvoice` — O'zingiz ham yangi ovoz taklif qilishingiz mumkin (moderatsiyadan so'ng bazaga qo'shiladi!).\n"
+        "5. Botga istalgan MP3 musiqa yoki audio yuborsangiz, uni Telegram ovozli xabariga aylantirib beradi."
     )
     await message.answer(text, parse_mode="Markdown")
+
+@router.message(Command("top"))
+async def cmd_top(message: Message):
+    """Eng ko'p ishlatilgan trend ovozlarni ko'rsatish."""
+    voices = await get_top_voices(limit=10)
+    if not voices:
+        return await message.answer("Hozircha ovozlar mavjud emas.")
+
+    text = "🔥 **Eng ko'p jo'natilgan Top-10 ovozlar:**\n\n"
+    for idx, v in enumerate(voices, start=1):
+        text += f"{idx}. **{v.get('title')}** — 🚀 {v.get('usage_count', 0)} marta\n"
+    text += "\nUlarni do'stlaringizga yuborish uchun istalgan chatda bot nomini yozing!"
+    await message.answer(text, parse_mode="Markdown")
+
+@router.message(Command("addvoice"))
+async def cmd_addvoice(message: Message, state: FSMContext):
+    """Foydalanuvchi tomonidan ovoz taklif qilish."""
+    await state.set_state(UserSubmitVoiceState.waiting_for_media)
+    await message.answer(
+        "🎙 **Yangi ovoz taklif qilish:**\n\n"
+        "Menga o'zingiz qo'shmoqchi bo'lgan **Voice (ovozli xabar)** yoki **Audio (MP3)** yuboring:\n\n"
+        "(Bekor qilish uchun /cancel deb yozing)",
+        parse_mode="Markdown"
+    )
+
+@router.message(UserSubmitVoiceState.waiting_for_media, F.voice | F.audio | (F.document & (
+    F.document.mime_type.startswith("audio/") |
+    F.document.file_name.ilike("%.mp3") |
+    F.document.file_name.ilike("%.ogg") |
+    F.document.file_name.ilike("%.wav") |
+    F.document.file_name.ilike("%.m4a") |
+    F.document.file_name.ilike("%.opus")
+)))
+async def process_user_voice_media(message: Message, state: FSMContext, bot: Bot):
+    """Taklif qilinayotgan audio/voice qabul qilindi, endi nom so'raymiz."""
+    media = message.voice or message.audio or message.document
+    duration = getattr(media, "duration", 0)
+
+    # Agar audio bo'lsa, uni avval voice qilib olamiz
+    file_id = media.file_id
+    if not message.voice:
+        msg = await message.reply("⏳ Ovoz tayyorlanmoqda...")
+        temp_dir = tempfile.gettempdir()
+        input_path = None
+        output_path = None
+        try:
+            file_info = await bot.get_file(file_id)
+            ext = os.path.splitext(file_info.file_path)[1] or ".mp3"
+            input_path = os.path.join(temp_dir, f"sub_{media.file_unique_id}{ext}")
+            await bot.download_file(file_info.file_path, destination=input_path)
+            output_path = await convert_audio_to_voice(input_path, effect="normal")
+            
+            # Adminga o'zimiz yuborishimiz uchun voice qilib yuboramiz
+            voice_file = FSInputFile(output_path)
+            sent_voice = await message.reply_voice(voice=voice_file, caption="🎙 Ovoz formati tayyorlandi!")
+            file_id = sent_voice.voice.file_id
+            duration = sent_voice.voice.duration
+            await msg.delete()
+        except Exception as e:
+            logger.error(f"Taklif audio konvertatsiyasida xatolik: {e}")
+            await msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
+            return
+        finally:
+            if input_path and os.path.exists(input_path):
+                try: os.remove(input_path)
+                except Exception: pass
+            if output_path and os.path.exists(output_path):
+                try: os.remove(output_path)
+                except Exception: pass
+
+    await state.update_data(file_id=file_id, duration=duration)
+    await state.set_state(UserSubmitVoiceState.waiting_for_title)
+    await message.reply("Endi ushbu ovoz uchun nom (sarlavha) kiriting:")
+
+@router.message(UserSubmitVoiceState.waiting_for_title, F.text)
+async def process_user_voice_title(message: Message, state: FSMContext, bot: Bot):
+    """Ovoz nomi kiritildi, moderatsiyaga yuborish."""
+    title = message.text.strip()
+    data = await state.get_data()
+    await state.clear()
+
+    file_id = data.get("file_id")
+    duration = data.get("duration", 0)
+    user = message.from_user
+
+    user_name = user.full_name or user.username or str(user.id)
+    if user.username:
+        user_name += f" (@{user.username})"
+
+    # 1. Supabase da taklif yaratish
+    sub = await create_submission(
+        user_id=user.id,
+        user_name=user_name,
+        title=title,
+        file_id=file_id,
+        duration=duration
+    )
+
+    if not sub:
+        return await message.reply("❌ Xatolik: Taklifni saqlab bo'lmadi.")
+
+    sub_id = str(sub.get("id"))
+
+    await message.reply(
+        f"✅ **Rahmat! Taklifingiz qabul qilindi.**\n\n"
+        f"🎙 Nomi: **{title}**\n\n"
+        f"⏳ Adminlar tomonidan tekshirilgach va tasdiqlangach, u darhol barcha uchun inline qidiruvga qo'shiladi va sizga xabar beramiz!",
+        parse_mode="Markdown"
+    )
+
+    # 2. Barcha adminlarga xabar yuborish
+    admin_caption = (
+        f"📥 **Yangi ovoz taklifi!**\n\n"
+        f"👤 Yuboruvchi: {user_name} [ID: `{user.id}`]\n"
+        f"🎙 Sarlavha: **{title}**\n"
+        f"🕒 Davomiyligi: {duration} sek"
+    )
+
+    admin_ids = set()
+    if config.SUPERADMIN_ID:
+        admin_ids.add(config.SUPERADMIN_ID)
+    try:
+        db_admins = await get_all_admins()
+        for adm in db_admins:
+            if adm.get("user_id"):
+                admin_ids.add(adm["user_id"])
+    except Exception:
+        pass
+
+    for aid in admin_ids:
+        try:
+            await bot.send_voice(
+                chat_id=aid,
+                voice=file_id,
+                caption=admin_caption,
+                reply_markup=get_moderation_kb(sub_id),
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Adminga taklif yuborishda xatolik (ID: {aid}): {e}")
+
 
 @router.message(
     F.audio | F.voice | (F.document & (
@@ -194,4 +348,22 @@ async def handle_convert_effects(callback: CallbackQuery, bot: Bot):
                 os.remove(output_voice)
             except Exception:
                 pass
+
+
+@router.callback_query(F.data == "suggest_voice")
+async def cb_suggest_voice_from_audio(callback: CallbackQuery, state: FSMContext):
+    """MP3 konvert qilingach 'Bazaga taklif qilish' tugmasi bosilganda."""
+    media = callback.message.voice or callback.message.audio
+    if not media and callback.message.reply_to_message:
+        orig = callback.message.reply_to_message
+        media = orig.voice or orig.audio or orig.document
+    
+    if not media:
+        return await callback.answer("Audio topilmadi.", show_alert=True)
+        
+    await state.set_state(UserSubmitVoiceState.waiting_for_title)
+    await state.update_data(file_id=media.file_id, duration=getattr(media, "duration", 0))
+    await callback.message.reply("Ushbu ovoz uchun nom (sarlavha) yozing:\n\n(Masalan: Gap yo'q brat)")
+    await callback.answer()
+
 

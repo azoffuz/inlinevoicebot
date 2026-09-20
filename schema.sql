@@ -37,10 +37,23 @@ CREATE INDEX IF NOT EXISTS idx_voices_usage ON voices (usage_count DESC);
 CREATE INDEX IF NOT EXISTS idx_voices_created_at ON voices (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_voices_title ON voices USING gin(to_tsvector('simple', title));
 
+-- 4. Voice Submissions table (Foydalanuvchilar taklif qilgan ovozlar moderatsiyasi)
+CREATE TABLE IF NOT EXISTS voice_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id BIGINT NOT NULL,
+    user_name TEXT,
+    title TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    duration INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- RLS (Row Level Security) - Service role kaliti ishlatilganda hamma huquq bor
 ALTER TABLE voices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bot_admins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bot_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE voice_submissions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow service role full access to voices" ON voices
     FOR ALL USING (true) WITH CHECK (true);
@@ -50,3 +63,7 @@ CREATE POLICY "Allow service role full access to bot_admins" ON bot_admins
 
 CREATE POLICY "Allow service role full access to bot_users" ON bot_users
     FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow service role full access to voice_submissions" ON voice_submissions
+    FOR ALL USING (true) WITH CHECK (true);
+
