@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: telegram-inline-voice-bot
+    env: docker
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: STORAGE_CHANNEL_ID
+        sync: false
+      - key: SUPERADMIN_ID
+        sync: false
+      - key: PORT
+        value: 8080
